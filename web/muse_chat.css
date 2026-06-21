@@ -1,0 +1,1126 @@
+/* muse_chat.css — frosted glass + warm amber theme for the Muse chat panel.
+   Accent / text / status colors are the locked spec tokens (section 4.4). The
+   glass fills, blur and backdrop were tuned beyond the original values so the
+   blur has amber glow-blobs to frost — that's what makes it read as real glass
+   rather than flat dark panels. */
+
+.muse-panel {
+  /* ---- color tokens ---- */
+  --muse-bg-base: #15120e;
+  /* Glass fills are kept more translucent than the original spec values so the
+     amber glow-blobs painted on the base actually show through and get frosted
+     by the backdrop blur — that's what reads as "glass" rather than flat brown. */
+  --muse-glass-bg: rgba(28, 24, 19, 0.42);
+  --muse-glass-bg-strong: rgba(40, 33, 24, 0.5);
+  --muse-glass-border: rgba(255, 214, 160, 0.14);
+  --muse-glass-sheen: rgba(255, 240, 220, 0.06);
+  --muse-blur: 20px;
+
+  /* Accent is driven by a single RGB triple so the color picker can re-theme
+     the whole panel by setting just --muse-accent-rgb / --muse-accent[-bright]. */
+  --muse-accent-rgb: 255, 157, 61;
+  --muse-accent: #ff9d3d;
+  --muse-accent-bright: #ffb85c;
+  --muse-accent-glow: rgba(var(--muse-accent-rgb), 0.35);
+  --muse-accent-dim: rgba(var(--muse-accent-rgb), 0.15);
+
+  --muse-text-primary: #f2ece3;
+  --muse-text-secondary: #b8ada0;
+  --muse-text-faint: #8a8074;
+
+  --muse-status-connected: #6fcf97;
+  --muse-status-idle: #ffb85c;
+  --muse-status-offline: #6b6258;
+  --muse-status-error: #e8615a;
+
+  --muse-user-bubble-bg: rgba(var(--muse-accent-rgb), 0.12);
+  --muse-user-bubble-border: rgba(var(--muse-accent-rgb), 0.28);
+  --muse-assistant-bubble-bg: rgba(255, 255, 255, 0.04);
+  --muse-assistant-bubble-border: rgba(255, 255, 255, 0.07);
+
+  /* ---- layout ---- */
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  overflow: hidden;
+  border-radius: 10px;
+  color: var(--muse-text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+  background-color: var(--muse-bg-base);
+  /* Layered amber glow-blobs of varying hue/brightness. These live BEHIND the
+     glass panels, so the panels' backdrop-filter blurs them into soft frosted
+     light instead of the flat dark we had before. */
+  background-image:
+    radial-gradient(460px circle at 8% 4%, rgba(var(--muse-accent-rgb), 0.20), transparent 60%),
+    radial-gradient(540px circle at 96% 14%, rgba(var(--muse-accent-rgb), 0.12), transparent 55%),
+    radial-gradient(680px circle at 78% 102%, rgba(var(--muse-accent-rgb), 0.13), transparent 55%),
+    radial-gradient(520px circle at 2% 96%, rgba(var(--muse-accent-rgb), 0.08), transparent 60%);
+}
+
+/* Faint frosted grain over the whole panel, blurred along with everything else
+   under the glass — gives the surface texture rather than a clean gradient. */
+.muse-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  mix-blend-mode: soft-light;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.muse-widget-root {
+  width: 100%;
+  height: 100%;
+}
+
+/* Keep content above the grain layer. */
+.muse-header,
+.muse-body {
+  position: relative;
+  z-index: 1;
+}
+
+.muse-panel * {
+  box-sizing: border-box;
+}
+
+/* ---- glass mixin (applied via class composition) ---- */
+.muse-topbar,
+.muse-sidebar,
+.muse-inputbar,
+.muse-sys-drawer {
+  background: var(--muse-glass-bg-strong);
+  -webkit-backdrop-filter: blur(var(--muse-blur)) saturate(1.4);
+  backdrop-filter: blur(var(--muse-blur)) saturate(1.4);
+  border: 1px solid var(--muse-glass-border);
+  /* top inner sheen (light catching the glass edge) + soft drop shadow for depth */
+  box-shadow:
+    inset 0 1px 0 var(--muse-glass-sheen),
+    0 6px 20px rgba(0, 0, 0, 0.35);
+}
+
+/* ---- draggable title strip ---- */
+.muse-dragbar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muse-text-secondary);
+  cursor: grab;
+  user-select: none;
+  position: relative;
+  z-index: 6;
+  background: linear-gradient(180deg, rgba(var(--muse-accent-rgb), 0.12), transparent);
+  border-bottom: 1px solid var(--muse-glass-border);
+}
+
+.muse-dragbar.muse-dragging {
+  cursor: grabbing;
+}
+
+.muse-grip {
+  color: var(--muse-accent);
+  font-size: 14px;
+  line-height: 1;
+  letter-spacing: -1px;
+  opacity: 0.85;
+}
+
+/* ---- header / top bar ---- */
+.muse-header {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  padding: 8px 8px 0 8px;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 5;
+}
+
+.muse-topbar {
+  flex: 1;
+  min-width: 0;
+  border-radius: 12px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.muse-topbar-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.muse-topbar-row-2 {
+  margin-top: 2px;
+}
+
+.muse-model-wrap {
+  display: flex;
+  flex: 1 1 130px;
+  gap: 4px;
+  min-width: 130px;
+}
+
+.muse-select,
+.muse-input {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--muse-glass-border);
+  color: var(--muse-text-primary);
+  border-radius: 8px;
+  padding: 5px 8px;
+  font-size: 12.5px;
+  outline: none;
+  transition: all 0.15s ease;
+}
+
+.muse-select:focus,
+.muse-input:focus {
+  border-color: var(--muse-accent);
+}
+
+.muse-model {
+  flex: 1;
+  min-width: 0;
+}
+
+.muse-baseurl {
+  width: 100%;
+  font-size: 11.5px;
+  color: var(--muse-text-secondary);
+}
+
+/* ---- buttons ---- */
+.muse-btn {
+  background: var(--muse-accent-dim);
+  border: 1px solid var(--muse-user-bubble-border);
+  color: var(--muse-text-primary);
+  border-radius: 8px;
+  padding: 5px 12px;
+  font-size: 12.5px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.muse-btn:hover:not(:disabled) {
+  background: var(--muse-accent-dim);
+  border-color: var(--muse-accent);
+}
+
+.muse-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.muse-load-btn.muse-loaded {
+  border-color: var(--muse-status-connected);
+  color: var(--muse-status-connected);
+}
+
+.muse-icon-btn {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--muse-glass-border);
+  color: var(--muse-text-secondary);
+  border-radius: 8px;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.muse-icon-btn:hover {
+  color: var(--muse-accent);
+  border-color: var(--muse-accent);
+}
+
+.muse-sidebar-toggle {
+  align-self: flex-start;
+  margin-top: 0;
+}
+
+/* ---- status dot ---- */
+.muse-status-dot {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 10px;
+  border-radius: 50%;
+  background: var(--muse-status-offline);
+  transition: all 0.15s ease;
+}
+
+.muse-status-offline { background: var(--muse-status-offline); }
+.muse-status-not-loaded { background: var(--muse-status-idle); }
+.muse-status-error { background: var(--muse-status-error); }
+.muse-status-loaded {
+  background: var(--muse-status-connected);
+  box-shadow: 0 0 6px currentColor;
+}
+
+/* ---- body / sidebar ---- */
+.muse-body {
+  flex: 1;
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  min-height: 0;
+}
+
+.muse-sidebar {
+  width: 160px;
+  flex: 0 0 160px;
+  border-radius: 12px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  transition: all 0.15s ease;
+  overflow: hidden;
+}
+
+.muse-sidebar-collapsed {
+  width: 0;
+  flex-basis: 0;
+  padding: 0;
+  border-width: 0;
+  opacity: 0;
+}
+
+.muse-newchat-btn {
+  width: 100%;
+  background: var(--muse-accent-dim);
+}
+
+.muse-chatlist {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+}
+
+.muse-chatlist-empty,
+.muse-chat-meta {
+  color: var(--muse-text-faint);
+  font-size: 11px;
+}
+
+.muse-chatlist-empty {
+  text-align: center;
+  padding: 16px 4px;
+}
+
+.muse-chat-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+  transition: all 0.15s ease;
+}
+
+.muse-chat-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.muse-chat-item.muse-active {
+  background: var(--muse-accent-dim);
+  border-left: 2px solid var(--muse-accent);
+  box-shadow: 0 0 16px var(--muse-accent-glow), inset 2px 0 8px -4px var(--muse-accent);
+}
+
+.muse-chat-itemmain {
+  flex: 1;
+  min-width: 0;
+}
+
+.muse-chat-title {
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muse-text-primary);
+}
+
+.muse-rename-input {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--muse-accent);
+  color: var(--muse-text-primary);
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-size: 12.5px;
+  font-family: inherit;
+  outline: none;
+  box-shadow: 0 0 10px var(--muse-accent-glow);
+}
+
+.muse-chat-actions {
+  display: none;
+  gap: 2px;
+}
+
+.muse-chat-item:hover .muse-chat-actions {
+  display: flex;
+}
+
+.muse-chat-action {
+  background: transparent;
+  border: none;
+  color: var(--muse-text-faint);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.muse-chat-action:hover { color: var(--muse-accent); }
+.muse-chat-del:hover { color: var(--muse-status-error); }
+
+/* ---- main column ---- */
+.muse-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* ---- system prompt drawer ---- */
+.muse-sys-area {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.muse-sys-toggle {
+  background: transparent;
+  border: none;
+  color: var(--muse-text-secondary);
+  cursor: pointer;
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+  text-align: left;
+  padding: 2px 4px;
+  transition: all 0.15s ease;
+}
+
+.muse-sys-toggle:hover { color: var(--muse-accent); }
+
+.muse-chevron {
+  display: inline-block;
+  transition: transform 0.15s ease;
+}
+
+.muse-sys-toggle.muse-open .muse-chevron {
+  transform: rotate(90deg);
+}
+
+.muse-sys-drawer {
+  border-radius: 10px;
+  padding: 6px;
+  margin-top: 4px;
+  overflow: hidden;
+  transition: all 0.15s ease;
+}
+
+.muse-sys-drawer.muse-collapsed {
+  display: none;
+}
+
+.muse-sys-textarea {
+  width: 100%;
+  min-height: 56px;
+  resize: vertical;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--muse-glass-border);
+  color: var(--muse-text-primary);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 12.5px;
+  font-family: inherit;
+  outline: none;
+}
+
+.muse-sys-textarea:focus { border-color: var(--muse-accent); }
+
+/* ---- messages ---- */
+.muse-messages {
+  flex: 1;
+  overflow-y: auto;
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  background: var(--muse-glass-bg);
+  -webkit-backdrop-filter: blur(var(--muse-blur)) saturate(1.4);
+  backdrop-filter: blur(var(--muse-blur)) saturate(1.4);
+  border: 1px solid var(--muse-glass-border);
+  box-shadow:
+    inset 0 1px 0 var(--muse-glass-sheen),
+    0 6px 20px rgba(0, 0, 0, 0.35);
+}
+
+.muse-empty {
+  margin: auto;
+  text-align: center;
+  color: var(--muse-text-faint);
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+.muse-msg {
+  display: flex;
+  flex-direction: column;
+  max-width: 88%;
+  position: relative;
+}
+
+.muse-msg-user {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.muse-msg-assistant {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+
+.muse-bubble {
+  padding: 8px 12px;
+  border-radius: 14px;
+  word-break: break-word;
+  white-space: normal;
+}
+
+.muse-msg-user .muse-bubble {
+  background: var(--muse-user-bubble-bg);
+  border: 1px solid var(--muse-user-bubble-border);
+  border-bottom-right-radius: 4px;
+}
+
+.muse-msg-assistant .muse-bubble {
+  background: var(--muse-assistant-bubble-bg);
+  border: 1px solid var(--muse-assistant-bubble-border);
+  border-bottom-left-radius: 4px;
+}
+
+.muse-answer { white-space: pre-wrap; }
+.muse-answer:empty::after {
+  content: "▍";
+  color: var(--muse-accent);
+  animation: muse-blink 1s steps(2) infinite;
+}
+
+@keyframes muse-blink {
+  50% { opacity: 0; }
+}
+
+.muse-answer code,
+.muse-thinking-body code {
+  background: rgba(0, 0, 0, 0.35);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 12.5px;
+}
+
+.muse-code {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--muse-glass-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 6px 0;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.muse-code code {
+  background: transparent;
+  padding: 0;
+}
+
+/* ---- thinking block ---- */
+.muse-thinking {
+  margin-bottom: 6px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.22);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--muse-glass-border);
+  overflow: hidden;
+}
+
+.muse-thinking-toggle {
+  background: transparent;
+  border: none;
+  color: var(--muse-text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 5px 8px;
+  width: 100%;
+  text-align: left;
+}
+
+.muse-thinking-hint { color: var(--muse-text-faint); }
+
+.muse-thinking-body {
+  padding: 0 10px 8px 10px;
+  color: var(--muse-text-faint);
+  font-style: italic;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+.muse-thinking.muse-collapsed .muse-thinking-body {
+  display: none;
+}
+
+/* ---- per-message toolbar ---- */
+.muse-msg-toolbar {
+  opacity: 0;
+  margin-top: 2px;
+  transition: opacity 0.15s ease;
+}
+
+.muse-msg:hover .muse-msg-toolbar {
+  opacity: 1;
+}
+
+.muse-msg-copy {
+  background: transparent;
+  border: none;
+  color: var(--muse-text-faint);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.muse-msg-copy:hover { color: var(--muse-accent); }
+
+/* ---- system messages (errors, notices) ---- */
+.muse-sysmsg {
+  align-self: center;
+  text-align: center;
+  font-size: 12px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  max-width: 90%;
+}
+
+.muse-sysmsg-info {
+  color: var(--muse-text-secondary);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.muse-sysmsg-error {
+  color: var(--muse-status-error);
+  background: rgba(232, 97, 90, 0.1);
+  border: 1px solid rgba(232, 97, 90, 0.25);
+}
+
+/* ---- input bar ---- */
+.muse-inputbar {
+  border-radius: 12px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.muse-input-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.muse-input-textarea {
+  flex: 1;
+  resize: none;
+  min-height: 38px;
+  max-height: 160px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--muse-glass-border);
+  color: var(--muse-text-primary);
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  line-height: 1.4;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.muse-input-textarea:focus {
+  border-color: var(--muse-accent);
+  box-shadow: 0 0 0 1px var(--muse-accent), 0 0 14px var(--muse-accent-glow);
+}
+.muse-input-textarea:disabled { opacity: 0.6; }
+
+.muse-send-btn,
+.muse-stop-btn {
+  flex: 0 0 auto;
+  height: 38px;
+  padding: 0 14px;
+  font-size: 15px;
+  background: var(--muse-accent);
+  border: none;
+  color: #1a1206;
+  font-weight: 600;
+}
+
+/* The send button is the one element that always carries a soft neon halo, so
+   the amber glow reads as the panel's signature accent. */
+.muse-send-btn {
+  box-shadow: 0 0 14px var(--muse-accent-glow), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.muse-send-btn:hover,
+.muse-send-btn:focus {
+  background: var(--muse-accent-bright);
+  box-shadow: 0 0 22px var(--muse-accent-glow), 0 0 6px var(--muse-accent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+.muse-stop-btn {
+  background: var(--muse-status-error);
+  color: #fff;
+}
+
+.muse-hidden { display: none !important; }
+
+.muse-token-info {
+  font-size: 11px;
+  color: var(--muse-text-faint);
+  text-align: right;
+  padding: 0 4px;
+  letter-spacing: 0.02em;
+}
+
+.muse-token-warn { color: var(--muse-status-error); }
+
+/* ---- scrollbars ---- */
+.muse-messages::-webkit-scrollbar,
+.muse-chatlist::-webkit-scrollbar,
+.muse-input-textarea::-webkit-scrollbar,
+.muse-sys-textarea::-webkit-scrollbar {
+  width: 8px;
+}
+
+.muse-messages::-webkit-scrollbar-track,
+.muse-chatlist::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.muse-messages::-webkit-scrollbar-thumb,
+.muse-chatlist::-webkit-scrollbar-thumb,
+.muse-input-textarea::-webkit-scrollbar-thumb,
+.muse-sys-textarea::-webkit-scrollbar-thumb {
+  background: rgba(var(--muse-accent-rgb), 0.25);
+  border-radius: 4px;
+}
+
+.muse-messages::-webkit-scrollbar-thumb:hover,
+.muse-chatlist::-webkit-scrollbar-thumb:hover {
+  background: rgba(var(--muse-accent-rgb), 0.4);
+}
+
+.muse-panel * {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(var(--muse-accent-rgb), 0.25) transparent;
+}
+
+/* ---- dropdown options (native popup): darken so it's readable ---- */
+.muse-select option {
+  background-color: #1b1712;
+  color: var(--muse-text-secondary);
+}
+.muse-select option:checked,
+.muse-select option:hover {
+  background-color: rgba(var(--muse-accent-rgb), 0.22);
+  color: var(--muse-text-primary);
+}
+
+/* ---- options row (accent swatches + VRAM toggle) ---- */
+.muse-options-row {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.muse-vram-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--muse-text-secondary);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.muse-vram-label:hover {
+  color: var(--muse-text-primary);
+}
+
+.muse-vram-toggle {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--muse-accent);
+  cursor: pointer;
+}
+
+/* ---- accent color picker swatches ---- */
+.muse-accent-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding-top: 2px;
+}
+
+.muse-swatch {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: 0 0 0 transparent;
+}
+
+.muse-swatch:hover {
+  transform: scale(1.18);
+}
+
+.muse-swatch-active {
+  border-color: #fff;
+  transform: scale(1.1);
+  box-shadow: 0 0 9px currentColor;
+}
+
+/* ---- transient system messages fade out ---- */
+.muse-sysmsg {
+  cursor: pointer;
+  transition: opacity 0.4s ease;
+}
+
+.muse-sysmsg.muse-fadeout {
+  opacity: 0;
+}
+
+/* ---- per-message action buttons (copy / regenerate / delete) ---- */
+.muse-msg-act {
+  background: transparent;
+  border: none;
+  color: var(--muse-text-faint);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.muse-msg-act:hover {
+  color: var(--muse-accent);
+  background: rgba(var(--muse-accent-rgb), 0.1);
+}
+
+.muse-msg-act.muse-msg-del:hover {
+  color: var(--muse-status-error);
+  background: rgba(232, 97, 90, 0.12);
+}
+
+/* =====================================================================
+   v2: options toggles, max-tokens, Guide Materials, image attachments
+   ===================================================================== */
+
+.muse-options-toggles {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* ---- max reply tokens setting ---- */
+.muse-setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.muse-setting-label {
+  font-size: 11.5px;
+  color: var(--muse-text-secondary);
+  letter-spacing: 0.02em;
+}
+
+.muse-maxtokens {
+  width: 90px;
+  text-align: right;
+}
+
+/* ---- Guide Materials ---- */
+.muse-guides-drawer {
+  display: block;
+}
+
+.muse-guides-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.muse-guides-hint,
+.muse-guides-empty,
+.muse-picker-head {
+  font-size: 11px;
+  color: var(--muse-text-faint);
+}
+
+.muse-guides-empty {
+  padding: 8px 2px;
+  text-align: center;
+}
+
+.muse-guides-refresh {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+}
+
+.muse-guides-count {
+  display: inline-block;
+  min-width: 16px;
+  padding: 0 5px;
+  border-radius: 8px;
+  font-size: 10px;
+  text-align: center;
+  background: var(--muse-accent-dim);
+  color: var(--muse-accent);
+  border: 1px solid var(--muse-user-bubble-border);
+}
+
+.muse-guides-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.muse-guide-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--muse-text-primary);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.muse-guide-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.muse-guide-cb {
+  accent-color: var(--muse-accent);
+  cursor: pointer;
+}
+
+.muse-guide-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.muse-guide-missing .muse-guide-name {
+  color: var(--muse-text-faint);
+}
+
+.muse-guide-warn {
+  font-size: 10.5px;
+  color: var(--muse-status-error);
+  white-space: nowrap;
+}
+
+/* ---- attach button + image picker ---- */
+.muse-attach-btn {
+  flex: 0 0 auto;
+  height: 38px;
+  width: 38px;
+  padding: 0;
+  font-size: 20px;
+  line-height: 1;
+  background: var(--muse-accent-dim);
+  border: 1px solid var(--muse-user-bubble-border);
+  color: var(--muse-accent);
+}
+
+.muse-attach-btn:hover {
+  border-color: var(--muse-accent);
+}
+
+.muse-image-picker {
+  border: 1px solid var(--muse-glass-border);
+  background: var(--muse-glass-bg-strong);
+  border-radius: 10px;
+  padding: 8px;
+  margin-bottom: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.muse-picker-head {
+  margin-bottom: 6px;
+}
+
+.muse-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: 6px;
+}
+
+.muse-picker-cell {
+  aspect-ratio: 1 / 1;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--muse-glass-border);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.muse-picker-cell:hover {
+  border-color: var(--muse-accent);
+  box-shadow: 0 0 10px var(--muse-accent-glow);
+}
+
+.muse-picker-cell img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* ---- pending (attached, not yet sent) thumbnails ---- */
+.muse-pending-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.muse-pending-thumb {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--muse-user-bubble-border);
+}
+
+.muse-pending-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.muse-pending-rm {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-size: 10px;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.muse-pending-rm:hover {
+  background: var(--muse-status-error);
+}
+
+/* ---- inline image attachments in chat history ---- */
+.muse-msg-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.muse-msg-img {
+  max-width: 180px;
+  max-height: 180px;
+  border-radius: 8px;
+  border: 1px solid var(--muse-glass-border);
+  display: block;
+}
+
+.muse-msg-img-missing {
+  font-size: 11px;
+  color: var(--muse-status-error);
+  padding: 10px;
+  border: 1px dashed rgba(232, 97, 90, 0.4);
+  border-radius: 8px;
+}
+
+/* ---- drag-and-drop highlight ---- */
+.muse-panel.muse-dragover::after {
+  content: "Drop image to attach";
+  position: absolute;
+  inset: 6px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  color: var(--muse-accent);
+  background: rgba(var(--muse-accent-rgb), 0.08);
+  border: 2px dashed var(--muse-accent);
+  border-radius: 12px;
+  pointer-events: none;
+}

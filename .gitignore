@@ -1,0 +1,17 @@
+# Runtime chat sessions (created on first use)
+chats/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyc
+.DS_Store
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.idea/
+
