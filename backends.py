@@ -1,25 +1,36 @@
 """
 Backend connectors for ComfyUI-Muse.
 
-Backend-agnostic async functions for talking to LM Studio and Ollama. Everything
-returns *normalized* data structures so server.py never has to special-case which
-backend is active beyond passing the backend name through.
+Backend-agnostic async functions for talking to LM Studio, Ollama, and our own
+"direct" (llama.cpp-server-backed) loader. Everything returns *normalized* data
+structures so server.py never has to special-case which backend is active
+beyond passing the backend name through.
 
 Normalized shapes
 -----------------
-model:  {"id": str, "loaded": bool|None, "context_length": int|None, "state": str|None}
+model:  {"id": str, "loaded": bool|None, "context_length": int|None, "state": str|None,
+         "vision": bool|None, "audio": bool|None, "display_name": str (optional)}
 chunk:  {"delta": str, "thinking": str, "done": bool,
          "usage": {"prompt_tokens", "completion_tokens", "total_tokens"} | None,
          "stats": {"tokens_per_second", "time_to_first_token"} | None,
          "error": str | None}
 
-Zero extra dependencies: only aiohttp (already a ComfyUI dependency) + stdlib.
+The "direct" backend doesn't talk to an already-running app the way LM Studio/
+Ollama do — it spawns and manages its own llama-server process (see
+direct_backend.py) and, once that's up, is OpenAI-compatible, so it reuses the
+same _lmstudio_* HTTP plumbing for the actual chat traffic.
+
+Zero extra hard dependencies: only aiohttp (already a ComfyUI dependency) + stdlib.
 """
 
 import asyncio
 import json
+import time
 
 import aiohttp
+
+from . import direct_backend
+from . import settings_store
 
 LMSTUDIO_DEFAULT_URL = "http://localhost:1234"
 OLLAMA_DEFAULT_URL = "http://localhost:11434"
@@ -29,6 +40,7 @@ DEFAULT_MAX_TOKENS = 2048
 DEFAULT_URLS = {
     "lmstudio": LMSTUDIO_DEFAULT_URL,
     "ollama": OLLAMA_DEFAULT_URL,
+    "direct": "",  # managed internally — no user-facing base URL
 }
 
 # Generous timeout: model load + first token on a cold model can take a while.
@@ -47,9 +59,24 @@ def _base(base_url, backend):
     return (base_url or default_url(backend)).strip().rstrip("/")
 
 
+def _fmt_ts(seconds):
+    seconds = seconds or 0
+    m = int(seconds // 60)
+    s = seconds - m * 60
+    return "%d:%05.2f" % (m, s) if m else "%.2fs" % s
+
+
 def _build_openai_messages(system_prompt, messages):
-    """OpenAI/LM Studio-style messages. Messages may carry resolved `images`
-    (list of {"data": b64, "mime": str}) -> rendered as image_url content parts."""
+    """OpenAI/LM Studio/llama.cpp-style messages. Messages may carry resolved
+    `images` (list of {"data": b64, "mime": str}) -> image_url content parts,
+    `video_frames` (list of {"name", "duration", "fps", "frames": [{"data",
+    "mime", "timestamp"}]}) -> an interleaved "t=0:03.00" text part + image_url
+    part per sampled frame, and `audio` (list of {"name", "data", "format"})
+    -> input_audio content parts (the OpenAI/llama.cpp-server shape: {"type":
+    "input_audio", "input_audio": {"data": b64, "format": "wav"}}). LM Studio
+    doesn't understand input_audio as of this writing, but the shape is
+    forward-compatible and is exactly what llama-server (our Direct backend)
+    expects, so it's built here rather than duplicated per-backend."""
     out = []
     if system_prompt and system_prompt.strip():
         out.append({"role": "system", "content": system_prompt})
@@ -59,12 +86,33 @@ def _build_openai_messages(system_prompt, messages):
             continue
         text = m.get("content", "") or ""
         images = m.get("images") or []
-        if images and role == "user":
+        videos = m.get("video_frames") or []
+        audio = m.get("audio") or []
+        if (images or videos or audio) and role == "user":
             parts = [{"type": "text", "text": text}]
             for img in images:
                 parts.append({
                     "type": "image_url",
                     "image_url": {"url": "data:%s;base64,%s" % (img["mime"], img["data"])},
+                })
+            for vid in videos:
+                frames = vid.get("frames") or []
+                parts.append({
+                    "type": "text",
+                    "text": "--- Video: %s (%d sampled frames, ~%.1fs) ---" % (
+                        vid.get("name", "video"), len(frames), vid.get("duration") or 0,
+                    ),
+                })
+                for fr in frames:
+                    parts.append({"type": "text", "text": "t=%s" % _fmt_ts(fr.get("timestamp"))})
+                    parts.append({
+                        "type": "image_url",
+                        "image_url": {"url": "data:%s;base64,%s" % (fr["mime"], fr["data"])},
+                    })
+            for a in audio:
+                parts.append({
+                    "type": "input_audio",
+                    "input_audio": {"data": a["data"], "format": a.get("format") or "wav"},
                 })
             out.append({"role": role, "content": parts})
         else:
@@ -73,7 +121,12 @@ def _build_openai_messages(system_prompt, messages):
 
 
 def _build_ollama_messages(system_prompt, messages):
-    """Ollama-style messages. Images go in a separate `images` array of base64."""
+    """Ollama-style messages. Images (and sampled video frames) go in a
+    separate `images` array of base64 — Ollama's protocol has no per-image
+    text interleaving, so frame timestamps are folded into the text content
+    instead, in the same order the frames are attached. Ollama has no audio
+    input mechanism at all (as of this writing), so audio attachments are
+    noted in text only — nothing to actually send."""
     out = []
     if system_prompt and system_prompt.strip():
         out.append({"role": "system", "content": system_prompt})
@@ -81,8 +134,20 @@ def _build_ollama_messages(system_prompt, messages):
         role = m.get("role", "user")
         if role not in ("user", "assistant"):
             continue
-        msg = {"role": role, "content": m.get("content", "") or ""}
-        images = m.get("images") or []
+        text = m.get("content", "") or ""
+        images = list(m.get("images") or [])
+        videos = m.get("video_frames") or []
+        audio = m.get("audio") or []
+        for vid in videos:
+            frames = vid.get("frames") or []
+            ts_list = ", ".join("t=%s" % _fmt_ts(fr.get("timestamp")) for fr in frames)
+            text += "\n\n[Video: %s — %d sampled frames attached in order below, timestamps: %s]" % (
+                vid.get("name", "video"), len(frames), ts_list,
+            )
+            images.extend(frames)
+        for a in audio:
+            text += "\n\n[Audio attached: %s — Ollama's API has no audio input, so this could not be sent]" % a.get("name", "audio")
+        msg = {"role": role, "content": text}
         if images and role == "user":
             msg["images"] = [img["data"] for img in images]
         out.append(msg)
@@ -117,6 +182,7 @@ def _normalize_lmstudio_models(data):
         out.append({
             "id": mid, "loaded": loaded, "context_length": ctx, "state": state,
             "vision": _detect_vision(it, mid),
+            "audio": _detect_audio(it, mid),
         })
     return out
 
@@ -134,6 +200,22 @@ def _detect_vision(it, mid):
         return True
     name = str(mid).lower()
     if any(tok in name for tok in ("vl", "vision", "llava", "-vl-", "gemma-3", "qwen2.5-vl", "qwen2-vl")):
+        return True
+    return None
+
+
+def _detect_audio(it, mid):
+    """Best-effort audio-input-capability detection, same shape/caveats as
+    _detect_vision. Nothing exposes this reliably via an API field yet, so
+    it's name-heuristic only — used purely to give the user a heads-up before
+    they attach an audio file to a model that likely won't use it."""
+    caps = it.get("capabilities")
+    if isinstance(caps, (list, tuple)):
+        low = [str(c).lower() for c in caps]
+        if any("audio" in c or "speech" in c for c in low):
+            return True
+    name = str(mid).lower()
+    if any(tok in name for tok in ("audio", "omni", "ultravox", "voxtral", "moshi")):
         return True
     return None
 
@@ -358,7 +440,7 @@ async def _ollama_list_models(session, base_url):
             if any("clip" in str(f).lower() or "vision" in str(f).lower() for f in fam):
                 vision = True
             out.append({"id": name, "loaded": None, "context_length": None,
-                        "state": None, "vision": vision})
+                        "state": None, "vision": vision, "audio": _detect_audio({}, name)})
     return out
 
 
@@ -485,6 +567,22 @@ def _new_session():
 
 
 async def list_models(backend, base_url):
+    if backend == "direct":
+        settings = settings_store.load()
+        loop = asyncio.get_event_loop()
+        # scan_models() walks the filesystem — keep it off the event loop.
+        models = await loop.run_in_executor(None, direct_backend.scan_models, settings.get("direct_folders") or [])
+        loaded_id = direct_backend.current_model_id()
+        return [
+            {
+                "id": m["id"], "display_name": m["display_name"],
+                "loaded": (m["id"] == loaded_id), "state": "loaded" if m["id"] == loaded_id else "not-loaded",
+                "context_length": m.get("context_length"),
+                "vision": m.get("vision"), "audio": m.get("audio"), "bytes": m.get("bytes"),
+                "layer_count": m.get("layer_count"),
+            }
+            for m in models
+        ]
     base_url = _base(base_url, backend)
     async with _new_session() as session:
         if backend == "ollama":
@@ -496,6 +594,35 @@ async def list_models(backend, base_url):
 
 async def chat_stream(backend, base_url, model, messages, system_prompt, max_tokens=DEFAULT_MAX_TOKENS):
     """Async generator yielding normalized chunks. Manages its own session."""
+    if backend == "direct":
+        start = time.monotonic()
+        yield {"delta": "", "thinking": "", "done": False, "usage": None, "stats": None,
+               "error": None, "status": "loading-model", "elapsed": 0}
+        # llama-server exposes no real load-percentage — only an honest elapsed-time
+        # readout is possible. Run the (potentially slow, first-load) ensure_loaded()
+        # as a background task and poll it so the UI can show a live counter instead
+        # of one static message for however long loading takes.
+        load_task = asyncio.ensure_future(direct_backend.ensure_loaded(model))
+        try:
+            while not load_task.done():
+                try:
+                    await asyncio.wait_for(asyncio.shield(load_task), timeout=1.0)
+                except asyncio.TimeoutError:
+                    yield {"delta": "", "thinking": "", "done": False, "usage": None, "stats": None,
+                           "error": None, "status": "loading-model",
+                           "elapsed": round(time.monotonic() - start, 1)}
+            direct_url = load_task.result()
+        except direct_backend.DirectBackendError as e:
+            yield {"delta": "", "thinking": "", "done": True, "usage": None, "stats": None, "error": str(e)}
+            return
+        session = _new_session()
+        try:
+            async for chunk in _lmstudio_chat_stream(session, direct_url, model, messages, system_prompt, max_tokens):
+                yield chunk
+        finally:
+            await session.close()
+        return
+
     base_url = _base(base_url, backend)
     session = _new_session()
     try:
@@ -510,6 +637,12 @@ async def chat_stream(backend, base_url, model, messages, system_prompt, max_tok
 
 
 async def load_model(backend, base_url, model):
+    if backend == "direct":
+        try:
+            url = await direct_backend.ensure_loaded(model)
+        except direct_backend.DirectBackendError as e:
+            raise BackendError(str(e))
+        return {"loaded": True, "instance_id": None, "status": "loaded", "base_url": url}
     base_url = _base(base_url, backend)
     async with _new_session() as session:
         if backend == "ollama":
@@ -518,6 +651,9 @@ async def load_model(backend, base_url, model):
 
 
 async def unload_model(backend, base_url, model, instance_id=None):
+    if backend == "direct":
+        await direct_backend.unload()
+        return {"loaded": False}
     base_url = _base(base_url, backend)
     async with _new_session() as session:
         if backend == "ollama":
@@ -530,6 +666,12 @@ async def unload_and_confirm(backend, base_url, model, instance_id=None,
     """Unload then poll the model's state until it actually reports not-loaded,
     so callers can sequence a VRAM handoff rather than fire-and-forget. Returns
     {"loaded": False, "confirmed": bool, "warning"?: str}."""
+    if backend == "direct":
+        # We wait out the process's own termination inside unload() itself, so
+        # by the time it returns VRAM release is already confirmed — no polling.
+        await direct_backend.unload()
+        return {"loaded": False, "confirmed": True}
+
     base_url = _base(base_url, backend)
     loop = asyncio.get_event_loop()
     async with _new_session() as session:
@@ -557,6 +699,8 @@ async def unload_and_confirm(backend, base_url, model, instance_id=None,
 
 
 async def get_status(backend, base_url, model):
+    if backend == "direct":
+        return direct_backend.status(model)
     base_url = _base(base_url, backend)
     async with _new_session() as session:
         if backend == "ollama":
@@ -565,6 +709,9 @@ async def get_status(backend, base_url, model):
 
 
 async def context_length(backend, base_url, model):
+    if backend == "direct":
+        m = direct_backend.lookup(model)
+        return m.get("context_length") if m else None
     base_url = _base(base_url, backend)
     async with _new_session() as session:
         if backend == "ollama":

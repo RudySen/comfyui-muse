@@ -1,12 +1,16 @@
 # Runtime chat sessions (created on first use)
 chats/
 
+# Direct-loader settings (folders/binary path are machine-specific)
+muse_settings.json
+
+# Downloaded llama-server builds (created on first use)
+bin/
+
 # Python bytecode
 __pycache__/
 *.py[cod]
 *.pyo
-*.pyc
-.DS_Store
 
 # OS / editor cruft
 .DS_Store
@@ -14,4 +18,3 @@ Thumbs.db
 *.swp
 .vscode/
 .idea/
-

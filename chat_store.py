@@ -93,6 +93,8 @@ def create_chat(backend="lmstudio", base_url="", model=None, system_prompt="", t
         "system_prompt": system_prompt,
         "guides": [],
         "max_tokens": 2048,
+        "video_fps": 1.0,
+        "video_max_frames": 24,
         "messages": [],
         "created_at": now,
         "updated_at": now,

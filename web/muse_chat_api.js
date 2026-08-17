@@ -58,7 +58,7 @@ const museChatApi = (() => {
   // Returns a promise that resolves when the stream ends. Pass an AbortSignal to
   // support the Stop button.
   async function streamChat(
-    { backend, baseUrl, model, systemPrompt, messages, freeComfyVram, maxTokens, guides },
+    { backend, baseUrl, model, systemPrompt, messages, freeComfyVram, maxTokens, guides, videoFps, videoMaxFrames },
     onChunk,
     signal
   ) {
@@ -74,6 +74,8 @@ const museChatApi = (() => {
         free_comfy_vram: freeComfyVram !== false,
         max_tokens: maxTokens || undefined,
         guides: guides || [],
+        video_fps: videoFps || undefined,
+        video_max_frames: videoMaxFrames || undefined,
       }),
       signal,
     });
@@ -161,6 +163,24 @@ const museChatApi = (() => {
     return data.images || [];
   }
 
+  async function listInputVideos() {
+    const resp = await fetch("/muse/input/videos");
+    const data = await jsonOrThrow(resp);
+    return data.videos || [];
+  }
+
+  // Save a dropped video File into ComfyUI/input/. Returns the (collision-safe) name.
+  async function saveInputVideo(file) {
+    const q = new URLSearchParams({ filename: file.name || "video.mp4" });
+    const resp = await fetch(`/muse/input/save-video?${q.toString()}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: file,
+    });
+    const data = await jsonOrThrow(resp);
+    return data.name;
+  }
+
   // Save a dropped File into ComfyUI/input/. Returns the (collision-safe) name.
   async function saveInputImage(file) {
     const q = new URLSearchParams({ filename: file.name || "image.png" });
@@ -173,10 +193,80 @@ const museChatApi = (() => {
     return data.name;
   }
 
+  async function listInputAudio() {
+    const resp = await fetch("/muse/input/audio");
+    const data = await jsonOrThrow(resp);
+    return data.audio || [];
+  }
+
+  // Save a dropped audio File into ComfyUI/input/. Returns the (collision-safe) name.
+  async function saveInputAudio(file) {
+    const q = new URLSearchParams({ filename: file.name || "audio.wav" });
+    const resp = await fetch(`/muse/input/save-audio?${q.toString()}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: file,
+    });
+    const data = await jsonOrThrow(resp);
+    return data.name;
+  }
+
   // URL ComfyUI serves input files from — used for inline thumbnails.
   function inputFileUrl(name) {
     const q = new URLSearchParams({ filename: name, type: "input", subfolder: "" });
     return `/view?${q.toString()}`;
+  }
+
+  // ---- Direct model loader settings ----
+  async function getDirectSettings() {
+    const resp = await fetch("/muse/direct/settings");
+    return jsonOrThrow(resp);
+  }
+
+  async function saveDirectSettings(settings) {
+    const resp = await fetch("/muse/direct/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(settings || {}),
+    });
+    return jsonOrThrow(resp);
+  }
+
+  async function detectDirectBinary() {
+    const resp = await fetch("/muse/direct/detect-binary");
+    return jsonOrThrow(resp);
+  }
+
+  async function suggestDirectFolders() {
+    const resp = await fetch("/muse/direct/suggest-folders");
+    return jsonOrThrow(resp);
+  }
+
+  async function getDirectPlatformInfo() {
+    const resp = await fetch("/muse/direct/platform-info");
+    return jsonOrThrow(resp);
+  }
+
+  // Downloads + extracts a matching llama.cpp release build server-side and
+  // points Direct Loader settings at it. No request timeout is set here —
+  // the download itself can take a while on a slow connection.
+  async function downloadDirectBinary(variant) {
+    const resp = await fetch("/muse/direct/download-binary", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ variant: variant || "vulkan" }),
+    });
+    return jsonOrThrow(resp);
+  }
+
+  async function getDirectGpuInfo() {
+    const resp = await fetch("/muse/direct/gpu-info");
+    return jsonOrThrow(resp);
+  }
+
+  async function getDirectLog() {
+    const resp = await fetch("/muse/direct/log");
+    return jsonOrThrow(resp);
   }
 
   return {
@@ -193,7 +283,19 @@ const museChatApi = (() => {
     listGuides,
     listInputImages,
     saveInputImage,
+    listInputVideos,
+    saveInputVideo,
+    listInputAudio,
+    saveInputAudio,
     inputFileUrl,
+    getDirectSettings,
+    saveDirectSettings,
+    detectDirectBinary,
+    suggestDirectFolders,
+    getDirectPlatformInfo,
+    downloadDirectBinary,
+    getDirectGpuInfo,
+    getDirectLog,
   };
 })();
 
