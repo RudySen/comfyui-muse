@@ -1,5 +1,7 @@
 # ComfyUI-Muse
 
+**🎉 V2 is out** — Direct model loader (no LM Studio/Ollama needed), audio attachments, edit & resend, chat branching, and more. Read the story in [RELEASE_NOTES.md](RELEASE_NOTES.md).
+
 **A local LLM chat panel that lives inside a ComfyUI node. Brainstorm prompts without leaving your workflow.**
 
 Muse embeds a persistent, multi-session chat interface (like LM Studio's chat panel) directly into a ComfyUI node. Talk to your locally-hosted LLMs, draft image/video prompts, then copy the text into your graph — no alt-tabbing between apps, and no juggling models in two places to manage VRAM.
